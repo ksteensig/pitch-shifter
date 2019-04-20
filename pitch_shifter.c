@@ -20,11 +20,13 @@ float alpha;
 uint32_t hop_out;
 float hop_buf[HOP_SIZE * 3];
 
+const float window_scale_factor = 0.7071;
 float hann_window[WINDOW_SIZE] = {0};
 
 float ring_buffer[WINDOW_SIZE + HOP_SIZE];
 float fft_buffer_in[WINDOW_SIZE];
 Meow_FFT_Complex fft_buffer_out[WINDOW_SIZE];
+Meow_FFT_Complex fft_buffer_temp[WINDOW_SIZE];
 size_t workset_bytes;
 Meow_FFT_Workset_Real *fft_real;
 
@@ -59,17 +61,18 @@ static inline float meow_angle(float r, float j) { return atan(r / j); }
 
 // bit reversal from the FFT is not important as long as
 // coefficients are bit reversed too
-void pitch_shift() {
+void time_stretch() {
   /* Analysis */
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
-    fft_buffer_in[i] *= hann_window[i] * 0.7071;
+    fft_buffer_in[i] *= hann_window[i] * window_scale_factor;
   }
 
   // simple fft
   meow_fft_real(fft_real, fft_buffer_in, fft_buffer_out);
 
   float r, j;
+  float expr, expj;
 
   // first part of for-loop is still in the analysis part
   // this is done to save WINDOW_SIZE amount of jumps
@@ -98,13 +101,30 @@ void pitch_shift() {
     cumulative_phase[i] += hop_out * true_freq[i];
 
     /* Synthesis */
+
+    expr = cos(cumulative_phase[i]);
+    expj = sin(cumulative_phase[i]);
+
+    fft_buffer_out[i].r = magnitude_frame[i] * expr;
+    fft_buffer_out[i].j = magnitude_frame[i] * expj;
+  }
+
+  // old output buffer is now the input and vice versa
+  meow_fft_real_i(fft_real, fft_buffer_out, fft_buffer_temp, fft_buffer_in);
+
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    fft_buffer_in[i] *= hann_window[i] * window_scale_factor;
   }
 }
+
+void resample() {}
 
 int main(int argc, char *argv[]) {
   configure();
 
-  pitch_shift();
+  time_stretch();
+
+  resample();
 
   /*
   if (argc >= 3) {
