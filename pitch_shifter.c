@@ -20,6 +20,14 @@ float alpha;
 uint32_t hop_out;
 float hop_buf[HOP_SIZE * 3];
 
+uint32_t in_ring_buf_len = WINDOW_SIZE + HOP_SIZE;
+uint32_t in_ring_buf_ptr = 0;
+float input_ring_buf[WINDOW_SIZE + HOP_SIZE];
+
+uint32_t out_ring_buf_len = 2300;
+uint32_t out_ring_buf_ptr = 0;
+float output_ring_buf[2300];
+
 const float window_scale_factor = 0.7071;
 float hann_window[WINDOW_SIZE] = {0};
 
@@ -62,6 +70,11 @@ static inline float meow_angle(float r, float j) { return atan(r / j); }
 // bit reversal from the FFT is not important as long as
 // coefficients are bit reversed too
 void time_stretch() {
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    fft_buffer_in[i] = input_ring_buf[in_ring_buf_ptr];
+    in_ring_buf_ptr = ++in_ring_buf_ptr % in_ring_buf_len;
+  }
+
   /* Analysis */
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
@@ -112,12 +125,35 @@ void time_stretch() {
   // old output buffer is now the input and vice versa
   meow_fft_real_i(fft_real, fft_buffer_out, fft_buffer_temp, fft_buffer_in);
 
+  // move one synthetic hop size in the output ring buffer
+  out_ring_buf_ptr += (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len;
+
   for (int i = 0; i < WINDOW_SIZE; i++) {
     fft_buffer_in[i] *= hann_window[i] * window_scale_factor;
+    output_ring_buf[out_ring_buf_ptr] = fft_buffer_in[i];
+    out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
+  }
+
+  // set old zone to zero
+  for (int i = 0; i < (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len; i++) {
+    output_ring_buf[(out_ring_buf_ptr + i) % out_ring_buf_len] = 0;
   }
 }
 
-void resample() {}
+void resample() {
+  uint32_t x1, x2;
+  float a;
+
+  out_ring_buf_ptr -= (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len;
+
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    x1 = (out_ring_buf_ptr + (uint32_t)(i * alpha)) % out_ring_buf_len;
+    x2 = (x1 + 1) % out_ring_buf_len;
+    a = output_ring_buf[x2] - output_ring_buf[x1];
+    fft_buffer_in[i] = output_ring_buf[x1] + alpha * a;
+    out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
+  }
+}
 
 int main(int argc, char *argv[]) {
   configure();
