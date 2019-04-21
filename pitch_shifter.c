@@ -8,11 +8,15 @@
 
 #define WINDOW_SIZE 1024
 #define HOP_SIZE 256
+#define STEP_SIZE 1
 
-char audio_file_name[256];
+char audio_file_name[] = "input_audio.txt";
 FILE *audio_file;
 float *audio_data;
 uint32_t audio_data_len;
+int eof = 0;
+
+FILE *output_file;
 
 float step_size;
 float alpha;
@@ -49,7 +53,10 @@ float delta_phi[WINDOW_SIZE];
 float true_freq[WINDOW_SIZE];
 
 void configure() {
-  alpha = pow(2, step_size / 12);
+  audio_file = fopen(audio_file_name, "r");
+  output_file = fopen("output_audio.txt", "w");
+
+  alpha = pow(2, STEP_SIZE / 12);
   hop_out = round(HOP_SIZE * alpha);
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
@@ -129,7 +136,8 @@ void time_stretch() {
   out_ring_buf_ptr += (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len;
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
-    fft_buffer_in[i] *= hann_window[i] * window_scale_factor;
+    fft_buffer_in[i] *=
+        hann_window[i] * window_scale_factor * (1.0 / WINDOW_SIZE);
     output_ring_buf[out_ring_buf_ptr] = fft_buffer_in[i];
     out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
   }
@@ -147,6 +155,7 @@ void resample() {
   out_ring_buf_ptr -= (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len;
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
+    // linear interpolation
     x1 = (out_ring_buf_ptr + (uint32_t)(i * alpha)) % out_ring_buf_len;
     x2 = (x1 + 1) % out_ring_buf_len;
     a = output_ring_buf[x2] - output_ring_buf[x1];
@@ -155,25 +164,40 @@ void resample() {
   }
 }
 
+inline void get_sample() {
+  if (fscanf(audio_file, "%f\n", &input_ring_buf[in_ring_buf_ptr]) == EOF) {
+    eof = 1;
+    input_ring_buf[in_ring_buf_ptr] = 0;
+  }
+
+  in_ring_buf_ptr = ++in_ring_buf_ptr % in_ring_buf_len;
+}
+
+inline void set_sample() {
+  fprintf(output_file, "%f\n", output_ring_buf[out_ring_buf_ptr]);
+  out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
+}
+
+void write_sample() {}
+
 int main(int argc, char *argv[]) {
   configure();
 
-  time_stretch();
+  while (!eof) {
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+      get_sample();
+    }
 
-  resample();
+    time_stretch();
+    resample();
 
-  /*
-  if (argc >= 3) {
-    sprintf(argv[1], "%s", audio_file_name);
-    sprintf(argv[2], "%lf", step_size);
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+      set_sample();
+    }
+  }
 
-    printf("%s, %lf\n", audio_file_name, step_size);
-  } else {
-    printf("Not enough arguments\n");
-    printf(
-        "First argument is the audio file, second argument is the step size\n");
-    return -1;
-  }*/
+  fclose(audio_file);
+  fclose(output_file);
 
   free(fft_real);
 
