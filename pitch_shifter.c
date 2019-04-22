@@ -29,6 +29,7 @@ uint32_t in_ring_buf_ptr = 0;
 float input_ring_buf[WINDOW_SIZE + HOP_SIZE];
 
 uint32_t out_ring_buf_len = 2300;
+// uint32_t out_ring_buf_len = 1280;
 uint32_t out_ring_buf_ptr = 0;
 float output_ring_buf[2300];
 
@@ -60,7 +61,7 @@ void configure() {
   hop_out = round(HOP_SIZE * alpha);
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
-    hann_window[i] = 0.5 * (1 - cos(2 * M_PI * i / (WINDOW_SIZE - 1)));
+    hann_window[i] = pow(sin((M_PI * i) * (1.0 / WINDOW_SIZE)), 2);
   }
 
   workset_bytes = meow_fft_generate_workset_real(WINDOW_SIZE, NULL);
@@ -68,16 +69,19 @@ void configure() {
   meow_fft_generate_workset_real(WINDOW_SIZE, fft_real);
 }
 
-static inline float meow_abs(float r, float j) {
-  return abs(sqrt(r * r + j * j));
-}
+static inline float meow_abs(float r, float j) { return sqrt(r * r + j * j); }
 
-static inline float meow_angle(float r, float j) { return atan(r / j); }
+static inline float meow_angle(float r, float j) {
+  double x = atan2(j, r);
+  // printf("%lf, %lf, %lf\n", x, r, j);
+  return x;
+}
 
 // bit reversal from the FFT is not important as long as
 // coefficients are bit reversed too
 void time_stretch() {
   for (int i = 0; i < WINDOW_SIZE; i++) {
+    // printf("%f\n", input_ring_buf[in_ring_buf_ptr]);
     fft_buffer_in[i] = input_ring_buf[in_ring_buf_ptr];
     in_ring_buf_ptr = ++in_ring_buf_ptr % in_ring_buf_len;
   }
@@ -85,6 +89,7 @@ void time_stretch() {
   /* Analysis */
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
+    // printf("%lf\n", fft_buffer_in[i]);
     fft_buffer_in[i] *= hann_window[i] * window_scale_factor;
   }
 
@@ -132,27 +137,30 @@ void time_stretch() {
   // old output buffer is now the input and vice versa
   meow_fft_real_i(fft_real, fft_buffer_out, fft_buffer_temp, fft_buffer_in);
 
+  uint32_t start_out = out_ring_buf_ptr;
+
   // move one synthetic hop size in the output ring buffer
-  out_ring_buf_ptr += (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len;
+  out_ring_buf_ptr =
+      (uint32_t)(out_ring_buf_ptr + alpha * HOP_SIZE) % out_ring_buf_len;
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
     fft_buffer_in[i] *=
         hann_window[i] * window_scale_factor * (1.0 / WINDOW_SIZE);
-    output_ring_buf[out_ring_buf_ptr] = fft_buffer_in[i];
+    output_ring_buf[out_ring_buf_ptr] += fft_buffer_in[i];
     out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
   }
 
   // set old zone to zero
-  for (int i = 0; i < (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len; i++) {
+  for (int i = 0; i < (uint32_t)(alpha * HOP_SIZE); i++) {
     output_ring_buf[(out_ring_buf_ptr + i) % out_ring_buf_len] = 0;
   }
+
+  out_ring_buf_ptr = start_out;
 }
 
 void resample() {
   uint32_t x1, x2;
   float a;
-
-  out_ring_buf_ptr -= (uint32_t)(alpha * HOP_SIZE) % out_ring_buf_len;
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
     // linear interpolation
@@ -160,8 +168,9 @@ void resample() {
     x2 = (x1 + 1) % out_ring_buf_len;
     a = output_ring_buf[x2] - output_ring_buf[x1];
     fft_buffer_in[i] = output_ring_buf[x1] + alpha * a;
-    out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
   }
+
+  out_ring_buf_ptr = x2;
 }
 
 inline void get_sample() {
@@ -170,30 +179,47 @@ inline void get_sample() {
     input_ring_buf[in_ring_buf_ptr] = 0;
   }
 
+  // printf("%f\n", input_ring_buf[in_ring_buf_ptr]);
+
   in_ring_buf_ptr = ++in_ring_buf_ptr % in_ring_buf_len;
 }
 
 inline void set_sample() {
-  fprintf(output_file, "%f\n", output_ring_buf[out_ring_buf_ptr]);
-  out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    fprintf(output_file, "%f\n", input_ring_buf[i]);
+  }
 }
-
-void write_sample() {}
 
 int main(int argc, char *argv[]) {
   configure();
 
+  uint32_t start_in;
+  uint32_t start_out;
+
   while (!eof) {
-    for (int i = 0; i < WINDOW_SIZE; i++) {
-      get_sample();
+    start_out = out_ring_buf_ptr;
+    for (int i = 0; i < 4; i++) {
+      for (int j = 0; j < HOP_SIZE; j++) {
+        get_sample();
+      }
+
+      start_in = in_ring_buf_ptr;
+      in_ring_buf_ptr = (in_ring_buf_ptr + HOP_SIZE) % in_ring_buf_len;
+
+      time_stretch();
+
+      in_ring_buf_ptr = start_in;
     }
 
-    time_stretch();
+    out_ring_buf_ptr = start_out;
+
     resample();
 
-    for (int i = 0; i < WINDOW_SIZE; i++) {
-      set_sample();
-    }
+    out_ring_buf_ptr = start_out;
+
+    //(start_out + (uint32_t)(3 * (HOP_SIZE * alpha))) % out_ring_buf_len;
+
+    set_sample();
   }
 
   fclose(audio_file);
