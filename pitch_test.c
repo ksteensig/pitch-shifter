@@ -80,12 +80,6 @@ static inline float meow_angle(float r, float j) {
 // bit reversal from the FFT is not important as long as
 // coefficients are bit reversed too
 void time_stretch() {
-  for (int i = 0; i < WINDOW_SIZE; i++) {
-    // printf("%f\n", input_ring_buf[in_ring_buf_ptr]);
-    fft_buffer_in[i] = input_ring_buf[in_ring_buf_ptr];
-    in_ring_buf_ptr = ++in_ring_buf_ptr % in_ring_buf_len;
-  }
-
   /* Analysis */
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
@@ -115,11 +109,11 @@ void time_stretch() {
     delta_phi[i] =
         phase_frame[i] - prev_phase_frame[i] - (HOP_SIZE * delta_phi_const * i);
 
+    prev_phase_frame[i] = phase_frame[i];
+
     // page 87 in the following pdf shows fmod exists for the c55x in assembly
     // https://www.eecs.umich.edu/courses/eecs452/Labs/Docs/C55x_Assmbly_Lang_guide.pdf
     delta_phi[i] = fmod(delta_phi[i] + M_PI, 2 * M_PI) - M_PI;
-
-    prev_phase_frame[i] = phase_frame[i];
 
     true_freq[i] = (delta_phi_const * i) + delta_phi[i] * (1.0 / HOP_SIZE);
 
@@ -137,82 +131,29 @@ void time_stretch() {
   // old output buffer is now the input and vice versa
   meow_fft_real_i(fft_real, fft_buffer_out, fft_buffer_temp, fft_buffer_in);
 
-  // move one synthetic hop size in the output ring buffer
-  out_ring_buf_ptr =
-      (uint32_t)(out_ring_buf_ptr + alpha * HOP_SIZE) % out_ring_buf_len;
-
   for (int i = 0; i < WINDOW_SIZE; i++) {
     fft_buffer_in[i] = fft_buffer_in[i] * hann_window[i] * window_scale_factor *
                        (1.0 / WINDOW_SIZE);
-    output_ring_buf[out_ring_buf_ptr] += fft_buffer_in[i];
-    out_ring_buf_ptr = ++out_ring_buf_ptr % out_ring_buf_len;
-  }
-
-  // set old zone to zero
-  for (int i = 0; i < round(alpha * HOP_SIZE); i++) {
-    output_ring_buf[(out_ring_buf_ptr + i) % out_ring_buf_len] = 0;
-  }
-}
-
-void resample() {
-  uint32_t x1, x2;
-  float a;
-
-  for (int i = 0; i < WINDOW_SIZE; i++) {
-    // linear interpolation
-    x1 = (out_ring_buf_ptr + hop_out) % out_ring_buf_len;
-    x2 = (x1 + 1) % out_ring_buf_len;
-    a = output_ring_buf[x2] - output_ring_buf[x1];
-    fft_buffer_in[i] = output_ring_buf[x1] + alpha * a;
-  }
-}
-
-inline void get_sample() {
-  if (fscanf(audio_file, "%f\n", &input_ring_buf[in_ring_buf_ptr]) == EOF) {
-    eof = 1;
-    input_ring_buf[in_ring_buf_ptr] = 0;
-  }
-
-  // printf("%f\n", input_ring_buf[in_ring_buf_ptr]);
-
-  in_ring_buf_ptr = ++in_ring_buf_ptr % in_ring_buf_len;
-}
-
-inline void set_samples() {
-  for (int i = 0; i < WINDOW_SIZE; i++) {
-    fprintf(output_file, "%f\n", input_ring_buf[i]);
   }
 }
 
 int main(int argc, char *argv[]) {
   configure();
 
-  uint32_t start_in;
-  uint32_t start_out;
+  float p;
 
-  while (!eof) {
-    start_out = out_ring_buf_ptr;
-    for (int i = 0; i < 4; i++) {
-      for (int j = 0; j < HOP_SIZE; j++) {
-        get_sample();
-      }
+  for (int i = 0; i < 6000; i++) {
+    fscanf(audio_file, "%f\n", &p);
+  }
 
-      start_in = in_ring_buf_ptr;
-      in_ring_buf_ptr = (in_ring_buf_ptr + HOP_SIZE) % in_ring_buf_len;
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    fscanf(audio_file, "%f\n", &fft_buffer_in[i]);
+  }
 
-      time_stretch();
+  time_stretch();
 
-      in_ring_buf_ptr = start_in;
-    }
-
-    out_ring_buf_ptr = start_out;
-
-    resample();
-
-    out_ring_buf_ptr =
-        start_out + (uint32_t)round(3 * (HOP_SIZE * alpha)) % out_ring_buf_len;
-
-    set_samples();
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    fprintf(output_file, "%f\n", fft_buffer_in[i]);
   }
 
   fclose(audio_file);
