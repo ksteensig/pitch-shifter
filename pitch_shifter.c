@@ -8,7 +8,7 @@
 
 #define WINDOW_SIZE 1024
 #define HOP_SIZE 256
-#define STEP_SIZE 1
+#define STEP_SIZE 4
 
 char audio_file_name[] = "input_audio.txt";
 FILE *audio_file;
@@ -18,20 +18,16 @@ int eof = 0;
 
 FILE *output_file;
 
-float step_size;
 float alpha;
-
 uint32_t hop_out;
-float hop_buf[HOP_SIZE * 3];
 
 uint32_t in_ring_buf_len = WINDOW_SIZE + HOP_SIZE;
 uint32_t in_ring_buf_ptr = 0;
 float input_ring_buf[WINDOW_SIZE + HOP_SIZE];
 
-// uint32_t out_ring_buf_len = 2300;
-uint32_t out_ring_buf_len = 1280;
+uint32_t out_ring_buf_len = 10000;
 uint32_t out_ring_buf_ptr = 0;
-float output_ring_buf[1800];
+float output_ring_buf[10000];
 
 const float window_scale_factor = 0.7071;
 float hann_window[WINDOW_SIZE] = {0};
@@ -57,7 +53,7 @@ void configure() {
   audio_file = fopen(audio_file_name, "r");
   output_file = fopen("output_audio.txt", "w");
 
-  alpha = pow(2, STEP_SIZE / 12);
+  alpha = pow(2, STEP_SIZE / 12.0);
   hop_out = round(HOP_SIZE * alpha);
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
@@ -90,7 +86,7 @@ void time_stretch() {
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
     // printf("%lf\n", fft_buffer_in[i]);
-    fft_buffer_in[i] *= hann_window[i] * window_scale_factor;
+    fft_buffer_in[i] = fft_buffer_in[i] * hann_window[i] * window_scale_factor;
   }
 
   // simple fft
@@ -137,9 +133,7 @@ void time_stretch() {
   // old output buffer is now the input and vice versa
   meow_fft_real_i(fft_real, fft_buffer_out, fft_buffer_temp, fft_buffer_in);
 
-  // move one synthetic hop size in the output ring buffer
-  out_ring_buf_ptr =
-      (uint32_t)(out_ring_buf_ptr + alpha * HOP_SIZE) % out_ring_buf_len;
+  uint32_t start_out = out_ring_buf_ptr;
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
     fft_buffer_in[i] = fft_buffer_in[i] * hann_window[i] * window_scale_factor *
@@ -149,9 +143,12 @@ void time_stretch() {
   }
 
   // set old zone to zero
-  for (int i = 0; i < round(alpha * HOP_SIZE); i++) {
+  for (int i = 0; i < hop_out; i++) {
     output_ring_buf[(out_ring_buf_ptr + i) % out_ring_buf_len] = 0;
   }
+
+  // move one synthetic hop size in the output ring buffer
+  out_ring_buf_ptr = (start_out + hop_out) % out_ring_buf_len;
 }
 
 void resample() {
@@ -160,7 +157,7 @@ void resample() {
 
   for (int i = 0; i < WINDOW_SIZE; i++) {
     // linear interpolation
-    x1 = (out_ring_buf_ptr + hop_out) % out_ring_buf_len;
+    x1 = (uint32_t)(out_ring_buf_ptr + alpha * i) % out_ring_buf_len;
     x2 = (x1 + 1) % out_ring_buf_len;
     a = output_ring_buf[x2] - output_ring_buf[x1];
     fft_buffer_in[i] = output_ring_buf[x1] + alpha * a;
@@ -180,7 +177,7 @@ inline void get_sample() {
 
 inline void set_samples() {
   for (int i = 0; i < WINDOW_SIZE; i++) {
-    fprintf(output_file, "%f\n", input_ring_buf[i]);
+    fprintf(output_file, "%f\n", fft_buffer_in[i]);
   }
 }
 
@@ -210,7 +207,7 @@ int main(int argc, char *argv[]) {
     resample();
 
     out_ring_buf_ptr =
-        start_out + (uint32_t)round(3 * (HOP_SIZE * alpha)) % out_ring_buf_len;
+        (start_out + (uint32_t)round(4 * hop_out)) % out_ring_buf_len;
 
     set_samples();
   }
