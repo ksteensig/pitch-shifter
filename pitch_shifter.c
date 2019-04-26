@@ -8,7 +8,7 @@
 
 #define WINDOW_SIZE 1024
 #define HOP_SIZE 256
-#define STEP_SIZE 4
+#define STEP_SIZE 1
 
 char audio_file_name[] = "input_audio.txt";
 FILE *audio_file;
@@ -25,9 +25,9 @@ uint32_t in_ring_buf_len = WINDOW_SIZE + HOP_SIZE;
 uint32_t in_ring_buf_ptr = 0;
 float input_ring_buf[WINDOW_SIZE + HOP_SIZE];
 
-uint32_t out_ring_buf_len = 10000;
+uint32_t out_ring_buf_len = 2300;
 uint32_t out_ring_buf_ptr = 0;
-float output_ring_buf[10000];
+float output_ring_buf[2300];
 
 const float window_scale_factor = 0.7071;
 float hann_window[WINDOW_SIZE] = {0};
@@ -105,7 +105,7 @@ void time_stretch() {
     magnitude_frame[i] = meow_abs(r, j);
 
     // some atan intrinsic on the TMS320C55X can do this
-    phase_frame[i] = meow_angle(r, j);
+    phase_frame[i] = fmod(meow_angle(r, j), 2 * M_PI);
 
     /* Processing */
     delta_phi[i] =
