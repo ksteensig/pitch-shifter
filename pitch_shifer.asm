@@ -42,11 +42,16 @@ ps_loop1_end:
   sqrt_16 AC0, AC0                      ; sqrt_16 assumes DARAM and isn't called like this
   atan2_16 r, j, PHASE_FRAME, 1         ; calculate the angle with r and j mapped between -pi and pi, also assumes DARAM
 
+                                        ; Calculate phase_frame[i] - prev_phase_frame[i] - (HOP_SIZE * delta_phi_const * i)
   MOV -#HOP_SIZE, AC0
   MPY DELTA_PHI_CONST, AC0
   MPY BIT_REV_INDEX(T0), AC0
   ADD PHASE_FRAME(T0), AC0
   SUB PREV_PHASE_FRAME(T0), AC0
-  
+                                        ; Calculate fmod(delta_phi[i] + pi, 2*pi) - pi
+  ADD M_PI, AC0
+  fmod AC0, 2xM_PI
+  SUB M_PI, AC0
 
+  
 ps_loop2_end:
