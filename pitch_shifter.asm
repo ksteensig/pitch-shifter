@@ -11,35 +11,24 @@ STEP_SIZE           .set 1
 WINDOW_SCALE_FACTOR .set 0x59BA ;Q15 0.701    ; Constant that comes from sqrt(((WINDOW_SIZE/HOP_SIZE)/2))
 DELTA_PHI_CONST     .set 0x00C9 ; Q15 0.00613  ; approx 2pi/WINDOW_SIZE
 
-HANN_WINDOW_START       .set 0x0000 ; TBD
-FFT_BUF_START           .set 0x0000 ; TBD
-MAGNITUDE_FRAME_START   .set 0x0000 ; TBD
-PHASE_FRAME_START       .set 0x0000 ; TBD
-PREV_PHASE_FRAME_START  .set 0x0000 ; TBD
-DELTA_PHI_START         .set 0x0000 ; TBD
-BIT_REV_INDEX_START     .set 0x0000 ; TBD
-TRUE_FREQ_START         .set 0x0000 ; TBD
-CUMMULATIVE_PHASE_START .set 0x0000 ; TBD
+HANN_WINDOW_START       .set 0x0000 ; TBD but it shall be 1024 big
+FFT_BUF_START           .set 0x0000 ; TBD but it shall be 2048 big
+MAGNITUDE_FRAME_START   .set 0x0000 ; TBD but it shall be 1024 big
+PHASE_FRAME_START       .set 0x0000 ; TBD but it shall be 1024 big
+PREV_PHASE_FRAME_START  .set 0x0000 ; TBD but it shall be 1024 big
+DELTA_PHI_START         .set 0x0000 ; TBD but it shall be 1024 big
+BIT_REV_INDEX_START     .set 0x0000 ; TBD but it shall be 1024 big
+TRUE_FREQ_START         .set 0x0000 ; TBD but it shall be 1024 big
+CUMMULATIVE_PHASE_START .set 0x0000 ; TBD but it shall be 1024 big
 
-HOP_OUT                 .set 0x0000 ; TBD
-ALPHA                   .set 0x0000 ; TBD
+HOP_OUT                 .set 0x0000 ; TBD but it shall be 1 big
+ALPHA                   .set 0x0000 ; TBD but it shall be 1 big
 
-ATAN2_R                 .set 0x0000 ; TBD
-ATAN2_J                 .set 0x0000 ; TBD
+ATAN2_R                 .set 0x0000 ; TBD but it shall be 1024 big
+ATAN2_J                 .set 0x0000 ; TBD but it shall be 1024 big
 
-FFT_BUF         .usect "PITCH_SHIFT_FFT_BUF",      2048
 INPUT_RING_BUF  .usect "PITCH_SHIFT_RING_BUF_IN",  1200 ; 5*HOP_SIZE
 OUTPUT_RING_BUF .usect "PITCH_SHIFT_RING_BUF_OUT", 2300 ; 7*HOP_SIZE*2^(4/12) rounded up to nearest 100
-
-HANN_WINDOW       .usect "HANN_WINDOW",             1024
-MAGNITUDE_FRAME   .usect "MAGNITUDE_FRAME",         1024
-PHASE_FRAME       .usect "PHASE_FRAME",             1024
-PREV_PHASE_FRAME  .usect "PREV_PHASE_FRAME",        1024
-BIT_REV_INDEX     .usect "BIT_REVERSED_INDEX",      1024
-DELTA_PHI         .usect "DELTA_PHI",               1024
-TRUE_FREQ         .usect "TRUE_FREQ",               1024
-CUMMULATIVE_PHASE .usect "CUMMULATIVE_PHASE",       1024
-
 
 _cifft_SCALE:
   RET
@@ -147,6 +136,7 @@ ps_loop4_end: MOV AC1, *AR1+
   _mod_2pi
 ps_loop5_end: MOV T1, *AR0+
                                         ; Phase shift the FFT'd buffer, assume AR7 pointsa at sine wave
+                                        ; This has not been implemented yet
   MOV #1023, BRC0
   SUB #1024, AR0                        ; Go back to beginning of cummulative phase
   SUB #2048, AR4                        ; Go back to beginning of the FFT buffer
@@ -155,11 +145,11 @@ ps_loop5_end: MOV T1, *AR0+
   ;MOV *AR0+, T0
   ;MOV *AR7(T0), 
 ps_loop6_end: NOP
-
+                                        ; IFFT
   MOV #FFT_BUF_START, AR0
   MOV #1024, T0
   CALL _cifft_SCALE
-
+                                        ; Hann window the result
   MOV #1023, BRC0
   SUB #2048, AR4
   MOV #HANN_WINDOW_START, AR0
