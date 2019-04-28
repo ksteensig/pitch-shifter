@@ -8,7 +8,7 @@
 
 #define WINDOW_SIZE 1024
 #define HOP_SIZE 256
-#define STEP_SIZE 1
+#define STEP_SIZE 2
 
 char audio_file_name[] = "input_audio.txt";
 FILE *audio_file;
@@ -48,6 +48,11 @@ const float delta_phi_const = (2 * M_PI) / WINDOW_SIZE;
 float delta_phi[WINDOW_SIZE];
 
 float true_freq[WINDOW_SIZE];
+
+float floatMod(float a, float b)
+{
+    return (a - b * floor(a * 1/b));
+}
 
 void configure() {
   audio_file = fopen(audio_file_name, "r");
@@ -105,7 +110,7 @@ void time_stretch() {
     magnitude_frame[i] = meow_abs(r, j);
 
     // some atan intrinsic on the TMS320C55X can do this
-    phase_frame[i] = fmod(meow_angle(r, j), 2 * M_PI);
+    phase_frame[i] = meow_angle(r, j);
 
     /* Processing */
     delta_phi[i] =
@@ -113,13 +118,14 @@ void time_stretch() {
 
     // page 87 in the following pdf shows fmod exists for the c55x in assembly
     // https://www.eecs.umich.edu/courses/eecs452/Labs/Docs/C55x_Assmbly_Lang_guide.pdf
-    delta_phi[i] = fmod(delta_phi[i] + M_PI, 2 * M_PI) - M_PI;
+    delta_phi[i] = floatMod(delta_phi[i] + M_PI, 2*M_PI) - M_PI;
 
     prev_phase_frame[i] = phase_frame[i];
 
     true_freq[i] = (delta_phi_const * i) + delta_phi[i] * (1.0 / HOP_SIZE);
 
     cumulative_phase[i] += hop_out * true_freq[i];
+    cumulative_phase[i] = floatMod(cumulative_phase[i], 2*M_PI);
 
     /* Synthesis */
 
